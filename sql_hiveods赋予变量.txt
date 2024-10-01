@@ -1,0 +1,70 @@
+log建表语句
+create table tempo.log (import_table,import_status,import_time) row format delimited fields terminated by '\t';
+
+
+#!/bin/bash
+hive -e "
+set mapreduce.map.memory.mb=512;
+set mapreduce.reduce.memory.mb=1024;
+set yarn.app.mapreduce.am.resource.mb=512;
+set hive.exec.reducers.max=1;
+"
+
+# Variables
+port="3306"
+address="localhost"
+database="bigdata_project_OLAP"
+hivedatabase="tempo"
+username="root"
+password="123456"
+
+# Arrays with table names
+incremental_tables=("order_info" "order_detail")
+full_import_tables=("base_province" "base_region" "base_category3" "base_category2" "base_category1" "sku_info" "user_info")
+
+# Incremental import
+for table in "${incremental_tables[@]}"; do
+  echo "Processing table $table"
+
+  if [ "$table" == "order_info" ]; then
+    last_value=$(hive -e "SELECT MAX(id) FROM $hivedatabase.order_info;" | tail -n +2)
+    if [ -z "$last_value" ]; then
+      sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --table $table --hive-import --hive-database $hivedatabase --hive-table $table --hive-overwrite --fields-terminated-by '\t' -m 1
+    else
+      sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --query "SELECT * FROM $table WHERE id > $last_value AND \$CONDITIONS" --target-dir /user/hive/warehouse/$hivedatabase.db/$table --incremental append --check-column id --last-value "$last_value" --fields-terminated-by '\t' -m 1
+    fi
+  elif [ "$table" == "order_detail" ]; then
+    last_value=$(hive -e "SELECT MAX(order_id) FROM $hivedatabase.order_detail;" | tail -n +2)
+    if [ -z "$last_value" ]; then
+      sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --table $table --hive-import --hive-database $hivedatabase --hive-table $table --hive-overwrite --fields-terminated-by '\t' -m 1
+    else
+      sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --query "SELECT * FROM $table WHERE order_id > $last_value AND \$CONDITIONS" --target-dir /user/hive/warehouse/$hivedatabase.db/$table --incremental append --check-column order_id --last-value "$last_value" --fields-terminated-by '\t' -m 1
+    fi
+  fi
+
+  if [ $? -eq 0 ]; then
+    hive -e "INSERT INTO $hivedatabase.log VALUES ('$table', 'import success', CURRENT_TIMESTAMP);"
+  else
+    hive -e "INSERT INTO $hivedatabase.log VALUES ('$table', 'import failed', CURRENT_TIMESTAMP);"
+  fi
+done
+
+# Full import
+for table in "${full_import_tables[@]}"; do
+  echo "Processing table $table"
+
+  check=$(hive -e "SHOW TABLES LIKE '$table';")
+
+  if [ -z "$check" ]; then
+    sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --table $table --hive-import --hive-database $hivedatabase --create-hive-table --fields-terminated-by '\t' -m 1
+  else
+    sqoop import --connect jdbc:mysql://$address:$port/$database --username $username --password $password --query "SELECT * FROM $table WHERE \$CONDITIONS" --fields-terminated-by '\t' --target-dir /user/hive/warehouse/$hivedatabase.db/$table --delete-target-dir -m 1
+  fi
+
+  if [ $? -eq 0 ]; then
+    hive -e "INSERT INTO $hivedatabase.log VALUES ('$table', 'import success', CURRENT_TIMESTAMP);"
+  else
+    hive -e "INSERT INTO $hivedatabase.log VALUES ('$table', 'import failed', CURRENT_TIMESTAMP);"
+  fi
+done
+

@@ -1,0 +1,101 @@
+建表语句
+create table dm.dm_trade_age_di
+(
+age bigint,
+sku_num bigint,
+order_count bigint,
+order_amount double,
+avg_amount double,
+ds_str string
+);
+
+create table dm.dm_trade_province_di
+(
+province_id string,
+province_name string,
+region_id string,
+region_name string,
+sku_num bigint,
+order_count bigint,
+order_amount double,
+avg_amount double,
+ds_str string
+);
+
+create table dm.dm_trade_sku_di
+(
+sku_id string,
+sku_name string,
+sku_num bigint,
+category3_id string,
+category2_id string,
+category1_id string,
+category3_name string,
+category2_name string,
+category1_name string,
+order_count bigint,
+order_amount double,
+avg_amount double,
+ds_str string
+);
+
+
+
+
+#!/bin/bash
+
+# Hive配置优化
+hive -e "
+set hive.map.aggr=true;"
+set hive.groupby.skewindata=true;
+set hive.groupby.mapaggr.checkinterval=100000;
+
+# 全量更新下单日年龄统计表(增量就把over换成into,在加一个时间where条件)
+
+INSERT OVERWRITE TABLE dm.dm_trade_age_di
+SELECT
+    age,
+    SUM(sku_num) AS sku_num,
+    COUNT(order_count) AS order_count,
+    SUM(order_amount) AS order_amount,
+    ROUND(AVG(order_amount), 4) AS avg_amount,
+    ds_str
+FROM dws.dws_trade_detail_di
+GROUP BY age, ds_str;
+
+# 全量更新日地区销售统计表(增量就把over换成into,在加一个时间where条件)
+
+INSERT OVERWRITE TABLE dm.dm_trade_province_di
+SELECT
+    province_id,
+    province_name,
+    region_id,
+    region_name,
+    SUM(sku_num) AS sku_num,
+    COUNT(order_count) AS order_count,
+    SUM(order_amount) AS order_amount,
+    ROUND(AVG(order_amount), 4) AS avg_amount,
+    ds_str
+FROM dws.dws_trade_detail_di
+GROUP BY province_id, province_name, region_id, region_name, ds_str;
+
+# 全量更新日商品销售统计表(增量就把over换成into,在加一个时间where条件)
+
+INSERT OVERWRITE TABLE dm.dm_trade_sku_di
+SELECT
+    sku_id,
+    sku_name,
+    SUM(sku_num) AS sku_num,
+    category3_id,
+    category2_id,
+    category1_id,
+    category3_name,
+    category2_name,
+    category1_name,
+    COUNT(order_count) AS order_count,
+    SUM(order_amount) AS order_amount,
+    ROUND(AVG(order_amount), 4) AS avg_amount,
+    ds_str
+FROM dws.dws_trade_detail_di
+GROUP BY sku_id, sku_name, category3_id, category2_id, category1_id, 
+         category3_name, category2_name, category1_name, ds_str;"
