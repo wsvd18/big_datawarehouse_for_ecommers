@@ -1,0 +1,103 @@
+#create a table
+create table dim.dim_base_province_df
+(
+province_id bigint,
+province_name string,
+region_id string,
+region_name string
+)
+row format delimited fields terminated by '\t';
+
+create table dim.dim_user_info_df
+(
+birthday string,
+id bigint,
+name string,
+create_time string
+)
+row format delimited fields terminated by '\t';
+
+create table dim.dim_sku_info_df
+(
+sku_id string,
+sku_name string,
+category3_id string,
+category2_id string,
+category1_id string,
+category3_name string,
+category2_name string,
+category1_name string
+)
+row format delimited fields terminated by '\t';
+
+
+#!/bin/bash
+
+# "Optimize to prevent data skew — use mapjoin, local mode, strict mode, and parallel computing when necessary."
+hive -e "
+set hive.exec.reducers.max=1009;
+set mapreduce.job.reduces=1;
+set hive.optimize.skewjoin=true;
+set hive.skewjoin.key=100000;
+set hive.map.aggr=true;
+
+# Full update DIM table 1
+
+INSERT OVERWRITE TABLE dim.dim_base_province_df
+SELECT
+    t1.id as province_id,
+    t1.name as province_name,
+	t2.id as region_id,
+    t2.region_name
+FROM
+    tempo.base_province t1
+LEFT JOIN
+    tempo.base_region t2
+ON
+    t2.id = t1.region_id;
+
+
+# Full update DIM table 2
+
+INSERT OVERWRITE TABLE dim.dim_user_info_df
+SELECT
+    birthday,
+    id,
+    name,
+    create_time
+FROM
+    tempo.user_info;
+
+
+#Zipper table
+
+
+
+
+# Full update DIM table 3
+
+INSERT OVERWRITE TABLE dim.dim_sku_info_df
+SELECT
+    t1.id AS sku_id,
+    t1.sku_name,
+    t2.id AS category3_id,
+    t2.name AS category3_name,
+    t3.id AS category2_id,
+    t3.name AS category2_name,
+    t4.id AS category1_id,
+    t4.name AS category1_name
+FROM
+    tempo.sku_info t1
+JOIN
+    tempo.base_category3 t2
+ON
+    t1.category3_id = t2.id
+LEFT JOIN
+    tempo.base_category2 t3
+ON
+    t2.category2_id = t3.id
+LEFT JOIN
+    tempo.base_category1 t4
+ON
+    t3.category1_id = t4.id;
+"
